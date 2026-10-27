@@ -1,0 +1,261 @@
+# Team 7 cluster configuration.
+#
+# Copy to cluster.toml and edit. Every key is documented in DOCS.md.
+# Keys you leave out take the defaults listed there.
+#
+# Week 1 layout: one CPU controller and two single-GPU g4dn nodes,
+# one node for training and one for evaluation.
+
+[cluster]
+name = "team7"
+os_version = "24.04"            # installer refuses other Ubuntu releases
+slurm_version = "23.11"         # prefix-matched against the installed Slurm; "" disables the check
+ntp_server = "169.254.169.123"  # Amazon Time Sync Service
+
+[controller]
+name = "ctl-01"
+ip = "10.0.1.10"                # fixed private IP; launch the instance with this address
+
+# --- GPU nodes ---------------------------------------------------------------
+# cpus / sockets / cores_per_socket / threads_per_core / real_memory_mb must
+# match `slurmd -C` on the node (real_memory_mb may be lower to leave RAM for
+# the OS). The values below are for g4dn.xlarge (4 vCPU, 16 GiB).
+# g4dn.2xlarge: cpus = 8, cores_per_socket = 4, real_memory_mb = 30000.
+
+[[nodes]]
+name = "train-01"
+role = "train"
+ip = "10.0.1.20"
+gpus = 1
+gpu_type = "t4"
+cpus = 4
+sockets = 1
+cores_per_socket = 2
+threads_per_core = 2
+real_memory_mb = 14000
+
+[[nodes]]
+name = "eval-01"
+role = "eval"
+ip = "10.0.1.21"
+gpus = 1
+gpu_type = "t4"
+cpus = 4
+sockets = 1
+cores_per_socket = 2
+threads_per_core = 2
+real_memory_mb = 14000
+
+# --- Unix identities ------------------------------------------------------------
+[unix]
+group = "team7"
+gid = 2000
+slurm_uid = 64030
+slurm_gid = 64030
+
+# --- Secrets ------------------------------------------------------------------------
+# The munge key is the only shared secret. "file": the controller writes it to
+# munge_key_file and you scp it to each node. "ssm": stored in SSM Parameter Store.
+[secrets]
+munge_key_source = "file"
+munge_key_file = "/root/team7/munge.key"
+# ssm_parameter = "/team7/munge_key"
+# ssm_region = "us-east-1"
+
+# --- Slurm ----------------------------------------------------------------------------
+[slurm]
+requeue_exit = 75               # "checkpoint saved, requeue me"
+srun_port_range = "60001-63000" # open these in the security group between hosts
+slurmd_timeout = 300
+return_to_service = 1
+
+[slurm.priority_weights]
+fairshare = 10000
+age = 1000
+qos = 2000
+partition = 0
+job_size = 0
+
+# Pass-through for slurm.conf keys the installer does not model.
+[slurm.extra]
+# MaxArraySize = "1001"
+
+# --- Health checks ----------------------------------------------------------------------
+# Leave disabled until health/launch.sh exists in the code you deploy.
+[health]
+enabled = false
+launch_script = "/opt/team7/src/health/launch.sh"
+quick_args = "--quick"
+interval_s = 300
+
+# --- Storage ------------------------------------------------------------------------------
+[storage.scratch]               # local disk on each GPU node
+type = "nvme"                   # "nvme" (instance store, erased on stop) or "dir" (root volume)
+mount = "/scratch"
+device = "auto"
+filesystem = "xfs"
+
+[storage.shared]                # optional mount on every host
+type = "none"                   # "none", "efs" or "nfs"
+mount = "/shared"
+# efs_id = "fs-0123456789abcdef0"
+# region = "us-east-1"
+
+[checkpoints]
+local_dir = "/scratch/ckpt"
+durable = "s3"                  # "s3", "shared" or "none"
+s3_uri = "s3://team7-ckpt/run1"
+keep_local = 2
+keep_durable_last = 3
+keep_durable_every = 0
+
+[logs]
+dir = "/scratch/logs"
+
+# --- Code deployed to every host -------------------------------------------------------------
+[code]
+source = "local"                # "none", "local" (copy local_path) or "git"
+local_path = ".."               # relative to this cluster/ directory
+dest = "/opt/team7/src"
+# git_url = "git@github.com:team7/repo.git"
+# git_ref = "main"
+
+# --- Python / DeepSpeed (GPU nodes only) ------------------------------------------------------
+# Package versions and the torch index live in pyenv/pyproject.toml + uv.lock.
+[python]
+project = "pyenv"
+version = "3.12"
+uv_version = "0.13.6"
+venv = "/opt/team7/venv"
+cuda_home = "/usr/local/cuda"   # must be a CUDA 12.x toolkit to match the cu126 torch wheel
+cuda_arch_list = "7.5"          # T4
+deepspeed_prebuild_ops = ["FusedAdamBuilder"]
+
+# --- Job templates -----------------------------------------------------------------------------
+[training]
+partition = "train"
+account = "train"
+qos = "train"
+script = "/opt/team7/src/train.py"
+args = []
+deepspeed_config = "/opt/team7/src/ds_config.json"
+time = "24:00:00"
+signal_lead_s = 300
+pid_dir = "/tmp/team7-{job_id}"
+precision = "fp16"              # T4 has no bf16
+
+[eval]
+partition = "eval"
+account = "eval"
+qos = "eval"
+script = "/opt/team7/src/eval.py"
+time = "04:00:00"
+gpus_per_job = 1
+cpus_per_task = 2
+mem = "8G"
+
+[debug]
+qos = "debug"
+time = "00:10:00"
+
+# --- Partitions ----------------------------------------------------------------------------------
+[[partitions]]
+name = "train"
+nodes = ["train-01"]
+allow_accounts = ["train"]
+allow_qos = ["train", "debug"]
+max_time = "24:00:00"
+default_time = "01:00:00"
+
+[[partitions]]
+name = "eval"
+nodes = ["eval-01"]
+allow_accounts = ["eval"]
+allow_qos = ["eval", "debug"]
+max_time = "04:00:00"
+default_time = "00:30:00"
+
+# Only for the limit tests (T07/T08). Kept INACTIVE otherwise.
+[[partitions]]
+name = "limits-test"
+nodes = ["train-01", "eval-01"]
+allow_accounts = ["train"]
+allow_qos = ["limits_test", "debug"]
+max_time = "00:30:00"
+state = "INACTIVE"
+
+# --- QOS ---------------------------------------------------------------------------------------------
+[[qos]]
+name = "train"
+max_wall = "24:00:00"
+max_tres_per_job = { "gres/gpu" = 1 }
+max_jobs_pa = 1
+max_submit_jobs_pu = 4
+
+[[qos]]
+name = "eval"
+max_wall = "04:00:00"
+max_tres_per_job = { "gres/gpu" = 1 }
+max_jobs_pu = 1
+max_submit_jobs_pu = 20
+
+[[qos]]
+name = "debug"
+priority = 100
+max_wall = "00:30:00"
+max_tres_per_job = { "gres/gpu" = 1 }
+max_jobs_pu = 1
+max_submit_jobs_pu = 2
+
+[[qos]]
+name = "limits_test"
+max_wall = "00:10:00"
+
+# --- Accounts ------------------------------------------------------------------------------------------
+[[accounts]]
+name = "train"
+description = "Training team"
+fairshare = 1
+grp_tres = { "gres/gpu" = 1 }
+qos = ["train", "debug"]
+default_qos = "train"
+
+[[accounts]]
+name = "eval"
+description = "Evaluation team"
+fairshare = 1
+grp_tres = { "gres/gpu" = 1 }
+qos = ["eval", "debug"]
+default_qos = "eval"
+
+# --- Users ---------------------------------------------------------------------------------------------
+# One account per user. Public SSH keys are installed on every host.
+[[users]]
+name = "tr_user1"
+uid = 2001
+account = "train"
+ssh_keys = []
+
+[[users]]
+name = "tr_user2"
+uid = 2002
+account = "train"
+ssh_keys = []
+
+[[users]]
+name = "ev_user1"
+uid = 2101
+account = "eval"
+ssh_keys = []
+
+[[users]]
+name = "ev_user2"
+uid = 2102
+account = "eval"
+ssh_keys = []
+
+# --- Tests ------------------------------------------------------------------------------------------------
+[tests]
+limits_partition = "limits-test"
+limits_qos = "limits_test"
+requeue_cycles = 3

@@ -1,0 +1,59 @@
+# Training environment for the GPU nodes. The installer builds it with
+#   uv sync --frozen --no-install-package deepspeed && uv sync --frozen
+# into [python].venv (default /opt/team7/venv).
+#
+# To change versions: edit this file, run `uv lock` here, commit uv.lock.
+# See DOCS.md, "Python environment".
+
+[project]
+name = "team7-train-env"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = [
+    "torch==2.14.1",
+    "deepspeed==0.19.8",
+    "team7config",
+    # DeepSpeed is built without build isolation (its setup.py imports torch),
+    # so its build tools must be in the environment.
+    "setuptools>=70",
+    "wheel",
+    "packaging>=20.0",
+    "ninja",
+    "numpy",
+    "py-cpuinfo",
+    "psutil",
+]
+
+[tool.uv]
+package = false
+environments = ["sys_platform == 'linux' and platform_machine == 'x86_64'"]
+no-build-isolation-package = ["deepspeed"]
+
+# DeepSpeed ships only an sdist. Declaring its metadata lets `uv lock` resolve
+# without building it (which would need torch first).
+[[tool.uv.dependency-metadata]]
+name = "deepspeed"
+version = "0.19.8"
+requires-dist = [
+    "einops",
+    "hjson",
+    "msgpack",
+    "ninja",
+    "numpy",
+    "packaging>=20.0",
+    "psutil",
+    "py-cpuinfo",
+    "pydantic>=2.0.0",
+    "torch>=2.0.0",
+    "tqdm",
+]
+
+# CUDA 12.6 wheels: support the T4 (sm_75) and need an NVIDIA driver >= 560.
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu126" }
+team7config = { path = "../team7config" }

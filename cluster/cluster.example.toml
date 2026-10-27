@@ -131,7 +131,12 @@ uv_version = "0.13.6"
 venv = "/opt/team7/venv"
 cuda_home = "/usr/local/cuda"   # must be a CUDA 12.x toolkit to match the cu126 torch wheel
 cuda_arch_list = "7.5"          # T4
-deepspeed_prebuild_ops = ["FusedAdamBuilder"]
+# Empty: skip the DeepSpeed op pre-build (and its nvcc-vs-torch CUDA check).
+# The AMI ships only CUDA 13.2, but torch is the cu126 (CUDA 12.6) build for the
+# Turing T4, and DeepSpeed won't compile ops across a CUDA major mismatch. Use the
+# standard optimizer (torch.optim.AdamW) rather than DeepSpeed's FusedAdam. To build
+# fused ops instead, install a CUDA 12.6 toolkit and set cuda_home to it.
+deepspeed_prebuild_ops = []
 
 # --- Job templates -----------------------------------------------------------------------------
 [training]

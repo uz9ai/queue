@@ -4,6 +4,7 @@ built from pyenv/uv.lock (torch + DeepSpeed), and pre-built DeepSpeed ops."""
 from __future__ import annotations
 
 import hashlib
+import os
 import platform
 import re
 import tempfile
@@ -26,6 +27,15 @@ from ..util import (
 )
 
 UV_BIN = Path("/usr/local/bin/uv")
+
+
+def _free_mb(path: str) -> int | None:
+    """Free megabytes on the filesystem holding path, or None if it doesn't exist yet."""
+    try:
+        st = os.statvfs(path)
+    except OSError:
+        return None
+    return int(st.f_bavail * st.f_frsize / (1024 * 1024))
 
 
 def _uv_env(ctx: Ctx) -> dict[str, str]:
@@ -104,6 +114,29 @@ def pyenv(ctx: Ctx) -> None:
     if ctx.dry_run:
         info("[dry-run] would check torch/CUDA and pre-build DeepSpeed ops")
         return
+
+    # The two-pass sync can occasionally leave a large wheel (e.g. nvidia-cudnn-cu12,
+    # ~500 MB) half-materialized: the package dir exists but its .so files are missing,
+    # so `import torch` fails with "libcudnn.so.9: cannot open shared object file".
+    # Verify the import and, if it fails, reinstall every package once to self-heal.
+    check = run(ctx, [python, "-c", "import torch"], env=env, check=False, timeout=300, quiet=True)
+    if check.returncode != 0:
+        err = (check.stderr or check.stdout or "").strip().splitlines()
+        warn("import torch failed after sync (" + (err[-1] if err else "?") + "); reinstalling packages")
+        free_mb = _free_mb(py["venv"])
+        if free_mb is not None and free_mb < 5000:
+            raise InstallError(
+                f"only {free_mb} MB free on the filesystem holding {py['venv']}. The CUDA wheels "
+                "need several GB; a full disk truncates them. Free space or use a larger root "
+                "volume, then rerun. (The DLAMI root volume should be >= 100 GB.)"
+            )
+        run(ctx, [uv, "sync", "--frozen", "--reinstall"], env=env, cwd=project, timeout=3600)
+        run(ctx, ["chmod", "-R", "a+rX", py["venv"], py["python_install_dir"]])
+        check = run(ctx, [python, "-c", "import torch"], env=env, check=False, timeout=300, quiet=True)
+        if check.returncode != 0:
+            err = (check.stderr or check.stdout or "").strip().splitlines()
+            raise InstallError("import torch still fails after a full reinstall: " + (err[-1] if err else "?"))
+        ok("reinstall fixed the environment")
 
     torch_cuda = out(ctx, [python, "-c", "import torch; print(torch.version.cuda or '')"], env=env)
     if not torch_cuda:

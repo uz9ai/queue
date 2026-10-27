@@ -7,7 +7,7 @@ not in the TOML are reported, never deleted.
 
 from __future__ import annotations
 
-from ..util import Ctx, InstallError, header, info, ok, out, run, warn
+from ..util import Ctx, InstallError, header, info, ok, out, run, wait_for, warn
 
 BUILTIN_QOS = {"normal"}
 BUILTIN_ACCOUNTS = {"root"}
@@ -38,10 +38,40 @@ def _tres_set(ctx: Ctx, tres: dict, extra_keys: set[str]) -> str:
     return ",".join(f"{k}={v}" for k, v in sorted(parts.items()))
 
 
+def _wait_for_tres(ctx: Ctx) -> None:
+    """The GPU TRES is registered when slurmctld connects to slurmdbd, which
+    lags slurmctld startup by a moment. Wait for every gres/* limit used in the
+    TOML to appear, or sacctmgr rejects it with 'no TRES known by type ...'."""
+    needed = set()
+    for q in ctx.cfg["qos"]:
+        needed |= {k for k in (*q["max_tres_per_job"], *q["max_tres_per_user"]) if k.startswith("gres/")}
+    for a in ctx.cfg["accounts"]:
+        needed |= {k for k in a["grp_tres"] if k.startswith("gres/")}
+    needed |= {t for t in ctx.cfg["slurm"]["accounting_tres"] if t.startswith("gres/")}
+    if not needed:
+        return
+
+    def ready() -> bool:
+        known = {row[0] + "/" + row[1] for row in _list(ctx, "show", "tres", "format=type,name") if len(row) >= 2}
+        return needed <= known
+
+    try:
+        wait_for(ctx, ready, f"accounting to know TRES {', '.join(sorted(needed))}", timeout=90, interval=3)
+    except InstallError:
+        raise InstallError(
+            f"accounting does not know TRES {', '.join(sorted(needed))}. slurmctld must be running "
+            "with AccountingStorageTRES set so it registers these with slurmdbd. Check "
+            "`scontrol ping`, `grep AccountingStorageTRES /etc/slurm/slurm.conf`, and "
+            "`sacctmgr show tres`."
+        ) from None
+    ok(f"accounting knows TRES: {', '.join(sorted(needed))}")
+
+
 def accounts(ctx: Ctx) -> None:
     header("Slurm accounting: cluster, QOS, accounts, users")
     cfg = ctx.cfg
     cluster = cfg["cluster"]["name"]
+    _wait_for_tres(ctx)
 
     # -- cluster -------------------------------------------------------------------
     clusters = {row[0] for row in _list(ctx, "show", "cluster", "format=cluster")}

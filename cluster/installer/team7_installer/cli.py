@@ -49,12 +49,12 @@ STEPS = {
 
 PLANS = {
     "controller": ["preflight", "hosts", "users", "packages", "time", "shared", "code", "config",
-                   "munge", "slurm-config", "database", "slurmdbd", "accounts", "slurmctld",
+                   "munge", "slurm-config", "database", "slurmdbd", "slurmctld", "accounts",
                    "check-controller"],
     "node": ["preflight", "hosts", "users", "packages", "hardware", "time", "shared", "code",
              "config", "munge", "scratch", "health", "pyenv", "slurmd", "check-node"],
-    "apply": ["preflight", "hosts", "users", "time", "code", "config", "slurm-config", "accounts",
-              "slurmctld", "check-controller"],
+    "apply": ["preflight", "hosts", "users", "time", "code", "config", "slurm-config", "slurmctld",
+              "accounts", "check-controller"],
     "accounts": ["accounts"],
 }
 

@@ -89,10 +89,12 @@ quick_args = "--quick"
 interval_s = 300
 
 # --- Storage ------------------------------------------------------------------------------
+# The Deep Learning AMI already formats and mounts the instance-store NVMe at
+# /opt/dlami/nvme, so use type = "dir" under it rather than reformatting the disk.
 [storage.scratch]               # local disk on each GPU node
-type = "nvme"                   # "nvme" (instance store, erased on stop) or "dir" (root volume)
-mount = "/scratch"
-device = "auto"
+type = "dir"                    # "dir": directory on an already-mounted fs; "nvme": format a blank device
+mount = "/opt/dlami/nvme/team7"
+device = "auto"                 # only used when type = "nvme"
 filesystem = "xfs"
 
 [storage.shared]                # optional mount on every host
@@ -102,7 +104,7 @@ mount = "/shared"
 # region = "us-east-1"
 
 [checkpoints]
-local_dir = "/scratch/ckpt"
+local_dir = "/opt/dlami/nvme/team7/ckpt"
 durable = "s3"                  # "s3", "shared" or "none"
 s3_uri = "s3://team7-ckpt/run1"
 keep_local = 2
@@ -110,7 +112,7 @@ keep_durable_last = 3
 keep_durable_every = 0
 
 [logs]
-dir = "/scratch/logs"
+dir = "/opt/dlami/nvme/team7/logs"
 
 # --- Code deployed to every host -------------------------------------------------------------
 [code]

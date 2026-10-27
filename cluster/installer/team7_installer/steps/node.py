@@ -39,11 +39,22 @@ def scratch(ctx: Ctx) -> None:
     if cp.returncode != 0 and not ctx.dry_run:
         logs = out(ctx, ["journalctl", "-u", "team7-scratch.service", "-n", "20", "--no-pager"])
         raise InstallError(f"team7-scratch.service failed:\n{logs}")
-    if sc["type"] == "nvme" and not ctx.dry_run:
-        src = out(ctx, ["findmnt", "-n", "-o", "SOURCE", sc["mount"]])
-        if not src:
-            raise InstallError(f"{sc['mount']} is not mounted after team7-scratch.service ran")
-        ok(f"{src} mounted on {sc['mount']} (instance store: erased on stop/start, kept on reboot)")
+    if not ctx.dry_run:
+        if sc["type"] == "nvme":
+            src = out(ctx, ["findmnt", "-n", "-o", "SOURCE", sc["mount"]])
+            if not src:
+                raise InstallError(f"{sc['mount']} is not mounted after team7-scratch.service ran")
+            ok(f"{src} mounted on {sc['mount']} (instance store: erased on stop/start, kept on reboot)")
+        else:
+            # type = "dir": the mount is owned by the AMI (e.g. DLAMI /opt/dlami/nvme).
+            fs = out(ctx, ["df", "-P", sc["mount"]]).splitlines()
+            where = fs[-1].split()[-1] if len(fs) > 1 else "?"
+            mp = out(ctx, ["findmnt", "-n", "-o", "TARGET", "--target", sc["mount"]])
+            ok(f"using directory {sc['mount']} on filesystem mounted at {mp or where} "
+               "(instance store if on ephemeral NVMe: erased on stop/start)")
+            if mp == "/" :
+                warn(f"{sc['mount']} is on the root filesystem, not a separate fast disk; "
+                     "check that the AMI's NVMe is mounted, or set a path under it")
     else:
         ok(f"{sc['mount']} ready")
 

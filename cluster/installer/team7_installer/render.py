@@ -296,7 +296,14 @@ def scratch_setup_sh(cfg) -> str:
     mkfs = "mkfs.xfs -f" if sc["filesystem"] == "xfs" else "mkfs.ext4 -F -q"
     return f"""#!/bin/bash
 # {GENERATED}
-# Formats (if blank) and mounts the scratch disk, then creates job directories.
+# Prepares the scratch directories used for checkpoints and logs.
+#
+#   type = "dir"  : $MOUNT is expected to be an already-mounted filesystem
+#                   (e.g. the Deep Learning AMI's NVMe at /opt/dlami/nvme).
+#                   This script only creates the job directories under it.
+#   type = "nvme" : format a BLANK instance-store device and mount it at $MOUNT.
+#                   Refuses to touch a device that is already mounted or that
+#                   already holds a filesystem/LVM signature.
 # Instance-store NVMe is erased on stop/start, so this runs on every boot.
 set -euo pipefail
 
@@ -305,24 +312,56 @@ MOUNT={shlex.quote(sc['mount'])}
 DEVICE={shlex.quote(sc['device'])}
 
 if [ "$TYPE" = "dir" ]; then
+  if ! mountpoint -q "$MOUNT" && [ "$MOUNT" != "${{MOUNT%/*}}" ]; then
+    parent=$(df -P "$MOUNT" 2>/dev/null | awk 'NR==2 {{print $6}}' || true)
+    echo "team7-scratch: type=dir, using existing filesystem at $MOUNT (on ${{parent:-/}})"
+  fi
   mkdir -p "$MOUNT"
 elif mountpoint -q "$MOUNT"; then
-  echo "$MOUNT already mounted"
+  echo "team7-scratch: $MOUNT already mounted"
 else
   if [ "$DEVICE" = "auto" ]; then
-    DEVICE=$(lsblk -dpno NAME,MODEL | awk '/Amazon EC2 NVMe Instance Storage/ {{print $1; exit}}')
+    # Only pick an instance-store device that is NOT already in use: no mount,
+    # no partitions, and no existing filesystem/LVM signature.
+    DEVICE=""
+    while read -r dev model; do
+      [ -b "$dev" ] || continue
+      case "$model" in *"Instance Storage"*) ;; *) continue ;; esac
+      findmnt -S "$dev" >/dev/null 2>&1 && continue
+      lsblk -no NAME "$dev" | tail -n +2 | grep -q . && continue   # has partitions/LVM children
+      if blkid "$dev" >/dev/null 2>&1; then continue; fi           # already has a signature
+      DEVICE="$dev"; break
+    done < <(lsblk -dpno NAME,MODEL)
   fi
   if [ -z "$DEVICE" ] || [ ! -b "$DEVICE" ]; then
-    echo "team7-scratch: no instance-store NVMe device found (set [storage.scratch].device or type = \\"dir\\")" >&2
+    echo "team7-scratch: no blank instance-store NVMe device found." >&2
+    echo "  If this AMI already mounts its NVMe (e.g. the Deep Learning AMI at" >&2
+    echo "  /opt/dlami/nvme), set [storage.scratch].type = \\"dir\\" and point mount/" >&2
+    echo "  checkpoints/logs at that path instead of reformatting the disk." >&2
     exit 1
   fi
-  if ! blkid "$DEVICE" >/dev/null 2>&1; then
-    echo "team7-scratch: formatting $DEVICE"
-    {mkfs} "$DEVICE"
+  # Guard: never reformat a device that is mounted or already has a signature.
+  if findmnt -S "$DEVICE" >/dev/null 2>&1; then
+    echo "team7-scratch: refusing to reformat $DEVICE; it is already mounted (use type = \\"dir\\")" >&2
+    exit 1
   fi
+  if blkid "$DEVICE" >/dev/null 2>&1; then
+    sig=$(blkid -o value -s TYPE "$DEVICE" 2>/dev/null || echo unknown)
+    echo "team7-scratch: refusing to reformat $DEVICE; it already holds a '$sig' signature." >&2
+    echo "  Point [storage.scratch] at the existing mount with type = \\"dir\\", or set" >&2
+    echo "  [storage.scratch].device explicitly to a known-blank device to overwrite it." >&2
+    exit 1
+  fi
+  echo "team7-scratch: formatting blank device $DEVICE"
+  {mkfs} "$DEVICE"
   mkdir -p "$MOUNT"
   mount -o noatime "$DEVICE" "$MOUNT"
   echo "team7-scratch: mounted $DEVICE on $MOUNT"
+fi
+
+if ! mountpoint -q "$MOUNT" && [ "$TYPE" = "nvme" ]; then
+  echo "team7-scratch: $MOUNT is not a mount point after setup" >&2
+  exit 1
 fi
 
 mkdir -p {shlex.quote(ckpt)}

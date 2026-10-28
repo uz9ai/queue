@@ -136,7 +136,20 @@ def main() -> int:
             continue
         ev.start(tid, title)
         cp, job = r.submit(user, tid, [*args_, "-t", "00:01:00", *small], wrap="true")
-        if job:
+        if job and tid == "T06":
+            # Slurm accepts a job whose QOS is not in the partition's AllowQos, but never
+            # schedules it. Pass only if it stays PENDING with that reason and gets no node.
+            time.sleep(15)
+            info = r.job(job)
+            reason = info.get("Reason", "")
+            blocked = (info.get("JobState") == "PENDING" and "not_permitted" in reason.lower()
+                       and info.get("NodeList") in ("", "(null)", None))
+            result(tid, title, blocked,
+                   f"accepted as job {job} but blocked: {info.get('JobState')} ({reason}), "
+                   f"node={info.get('NodeList') or 'none'}" if blocked else
+                   f"accepted as job {job} and not blocked: {info.get('JobState')} ({reason}), "
+                   f"node={info.get('NodeList') or 'none'}")
+        elif job:
             info = r.job(job)
             result(tid, title, False, f"accepted as job {job} ({info.get('JobState')} {info.get('Reason')})")
         else:

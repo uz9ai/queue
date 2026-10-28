@@ -379,7 +379,7 @@ The expected reason strings below come from the Slurm documentation. Record the 
 | T03 | `tr_user1` submits a 1-GPU job to `train` | Runs on `train-01` |
 | T04 | `ev_user1` submits a 1-GPU job to `eval` | Runs on `eval-01` |
 | T05 | `tr_user1` submits with `--account=eval` | Rejected at submit (invalid account or account/partition combination) |
-| T06 | `ev_user1` submits to partition `train` | Rejected at submit (account not allowed in partition) |
+| T06 | `ev_user1` submits to partition `train` | Slurm may accept the job, but it must stay `PENDING` with "Job's QOS not permitted to use this partition" and never get a node (or `sbatch` rejects it) |
 | T07 | **GPU limit.** Set the `limits-test` partition `UP`. Add `limits_test` to the `train` account's QOS list. Set `train` `GrpTRES=gres/gpu=1`. Submit two 1-GPU jobs with `--qos=limits_test`. | First runs. Second pends with `AssocGrpGRES` while the other node's GPU is idle. |
 | T07b | Control: raise `train` `GrpTRES` to `gres/gpu=2` | Second job starts |
 | T08 | **Per-job GPU limit.** With `GrpTRES=gres/gpu=2`, submit `--qos=debug --nodes=2 --gres=gpu:1` to `limits-test` | Pends with `QOSMaxGRESPerJob` |

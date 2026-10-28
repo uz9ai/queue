@@ -25,6 +25,9 @@ sudo ./install.sh controller
 sudo cat /root/team7/munge.key > munge.key
 ```
 
+[![Demo](https://img.youtube.com/vi/SOj4qid-9to/hqdefault.jpg)](https://www.youtube.com/embed/SOj4qid-9to)
+
+
 Save cluster.toml and munge.key to local machine. these need to be copied to the worker nodes (important)
 
 
@@ -66,7 +69,7 @@ sudo python3 /opt/team7/cluster/tests/test_requeue.py # ~30 minutes
 ```
 
 
-[![Demo](https://img.youtube.com/vi/SOj4qid-9to/hqdefault.jpg)](https://www.youtube.com/embed/SOj4qid-9to)
+
 
 
 ![](./imgs/train_test1.png)

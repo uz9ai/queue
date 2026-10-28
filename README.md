@@ -120,3 +120,5 @@ sudo -u ev_user1 sbatch /opt/team7/jobs/eval.sbatch --ckpt /opt/dlami/nvme/step_
 ![](./imgs/eval_logs.png)
 
 
+
+Note:nvidia-smi are running on the respective nodes

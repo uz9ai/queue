@@ -83,7 +83,7 @@ def main() -> int:
                 bad.append(f"{n['name']} {row[1]}")
             elif n["gpus"] and f"gpu:{n['gpu_type']}:{n['gpus']}" not in row[2]:
                 bad.append(f"{n['name']} gres {row[2]}")
-        r.sh(["slurmd", "-V"])
+        r.sh(["slurmctld", "-V"])  # the controller has no slurmd; only GPU nodes do
         result("T01", "Nodes registered", not bad, "; ".join(bad) or "all nodes idle with expected GRES")
 
     # ---- T02 associations -------------------------------------------------------
